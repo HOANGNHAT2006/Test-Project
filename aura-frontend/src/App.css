@@ -1,76 +1,72 @@
-/* src/App.css - Phiên bản đã sửa lỗi căn giữa cho React */
-
-/* 1. Cấu hình cho khung bao ngoài cùng (QUAN TRỌNG NHẤT) */
 #root {
   width: 100%;
-  min-height: 100vh; /* Chiều cao bằng 100% màn hình */
+  min-height: 100vh; 
   display: flex;
-  justify-content: center; /* Căn giữa ngang */
-  align-items: center;     /* Căn giữa dọc */
-  background-color: #477de2; /* Màu nền xanh của bạn */
+  justify-content: center; 
+  align-items: center;   
+  background-color: #477de2; 
   margin: 0;
   padding: 0;
 }
 
-/* 2. Reset Body để không bị lề thừa */
+
 body {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-  /* Lưu ý: Đã chuyển màu nền và flexbox sang #root ở trên */
 }
 
-/* 3. Khung đăng nhập */
+
 .login-box {
   background-color: #ffffff;
   padding: 40px;
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); 
-  width: 400px; /* Đặt chiều rộng cố định để không bị bè ra */
-  max-width: 90%; /* Để không bị vỡ trên điện thoại */
+  width: 400px;
+  max-width: 90%; 
   text-align: center;
   border: 1px solid rgba(255, 255, 255, 0.5);
 }
 
-/* -------------------- Phần Tiêu đề -------------------- */
+
 .form-title h3 {
   color: #6b95e2;
   margin-top: 0;
   margin-bottom: 40px;
-  font-size: 2.5em; /* Giảm nhẹ xíu cho cân đối */
+  font-size: 2.5em;
   font-weight: 400;
 }
 
-/* -------------------- Phần Form và Input -------------------- */
+
 .input-group {
   position: relative;
   margin-bottom: 20px;
 }
 
 .input-group input {
-  width: 100%; /* Full chiều rộng của cha */
-  padding: 12px 12px 12px 40px; /* Chừa chỗ 40px bên trái cho icon */
+  width: 100%; 
+  padding: 12px 12px 12px 40px; 
   border: 1px solid #ced4da;
   border-radius: 5px;
-  box-sizing: border-box; /* Quan trọng: để padding không làm phình to input */
+  box-sizing: border-box; 
   font-size: 1em;
-  background-color: #fff !important; /* Ép buộc màu trắng */
+  background-color: #fff !important; 
   color: #333 !important;
 }
 
-/* Chỉnh lại vị trí Icon cho chuẩn giữa */
+
 .icon {
   position: absolute;
   left: 15px;
-  top: 50%; /* Đặt đỉnh icon ở giữa dòng */
-  transform: translateY(-50%); /* Kéo ngược lên 50% để căn chính xác tâm */
+  top: 50%; 
+  transform: translateY(-50%); 
   color: #adb5bd;
   font-size: 0.9em;
-  z-index: 1; /* Đảm bảo icon nổi lên trên */
+  z-index: 1; 
 }
 
-/* Nút Đăng nhập chính */
+
 button[type="submit"] {
   width: 100%;
   padding: 12px;
@@ -100,7 +96,7 @@ button[type="submit"]:hover {
   text-decoration: none;
 }
 
-/* -------------------- Chia và Đăng nhập xã hội -------------------- */
+
 .divider {
   text-align: center;
   margin: 25px 0;
@@ -133,7 +129,7 @@ button[type="submit"]:hover {
   margin-right: 10px;
 }
 
-/* -------------------- Phần Đăng Ký -------------------- */
+
 .register-section {
   margin-top: 30px;
   padding-top: 15px;

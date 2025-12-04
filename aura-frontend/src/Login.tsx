@@ -1,6 +1,5 @@
-// src/Login.tsx
 import React, { useState } from 'react';
-import './App.css'; // Kết nối với file CSS bạn vừa dán
+import './App.css'
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -9,7 +8,7 @@ const Login = () => {
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     alert(`Đăng nhập với: ${email}`);
-    // Sau này sẽ thêm code kết nối Python ở đây
+   
   };
 
   return (
@@ -39,16 +38,16 @@ const Login = () => {
           />
         </div>
         
-        {/* Nút Đăng nhập */}
+        {}
         <button type="submit" style={{width: '100%', padding: '10px', backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer'}}>
           Đăng Nhập
         </button>
 
-        {/* Các phần phụ khác giữ nguyên cấu trúc HTML của bạn nhưng chuyển class -> className */}
+        {}
         <p className="forgot-password"><a href="#">Quên mật khẩu?</a></p>
         <div className="divider">Hoặc</div>
         
-        {/* Nút Social (tạm thời để button thường) */}
+        {}
         <button type="button" className="social-button phone-btn">
             <i className="fas fa-phone"></i>Đăng nhập bằng số điện thoại
         </button>
@@ -56,7 +55,7 @@ const Login = () => {
         <button type="button" className="social-button google-btn">
             <i className="fab fa-google"></i>Đăng nhập bằng Google
         </button>
-        
+
         <button type="button" className="social-button facebook-btn">
             <i className="fab fa-facebook"></i>Đăng nhập bằng Facebook
         </button>
