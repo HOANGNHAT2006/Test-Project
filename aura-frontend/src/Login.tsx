@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom'; // 👈 Bổ sung
-import './App.css'; 
+import { useNavigate } from 'react-router-dom';
+import './App.css';
 
 const Login = () => {
-  const [email, setEmail] = useState('');
+  // Đổi tên biến trạng thái thành 'userName'
+  const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(''); 
   
-  // Khởi tạo hook để điều hướng
   const navigate = useNavigate(); 
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -15,13 +15,14 @@ const Login = () => {
     setError(''); 
 
     try {
-      // 1. Gọi API sang Server Python
+      // 1. Gửi 'userName' và 'password' sang Server Python
       const response = await fetch('http://127.0.0.1:8000/api/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, password }),
+        // CHÚ Ý: Đổi tên trường dữ liệu gửi đi thành 'userName'
+        body: JSON.stringify({ userName, password }), 
       });
 
       const data = await response.json();
@@ -29,13 +30,11 @@ const Login = () => {
       if (!response.ok) {
         setError(data.detail || 'Đăng nhập thất bại');
       } else {
-        // alert(`Xin chào ${data.user_info.full_name}! Bạn là: ${data.user_info.role}`);
-        
         // 2. Đăng nhập thành công: Lưu token và role
         localStorage.setItem('token', data.access_token);
         localStorage.setItem('role', data.user_info.role);
         
-        // 3. 🚀 CHUYỂN HƯỚNG TỚI TRANG CHỦ
+        // 3. CHUYỂN HƯỚNG TỚI TRANG CHỦ
         navigate('/dashboard'); 
       }
 
@@ -48,7 +47,6 @@ const Login = () => {
   return (
     <div className="login-box">
       <div className="form-title">
-        {/* Giả sử bạn có file logo.svg */}
         <img src="/logo.svg" alt="AURA Logo" style={{ width: '80px', marginBottom: '10px' }} />
         <h3>Đăng Nhập</h3>
       </div>
@@ -57,13 +55,12 @@ const Login = () => {
         {error && <p style={{color: 'red', marginBottom: '10px'}}>{error}</p>}
 
         <div className="input-group">
-          {/* Font Awesome icon, đảm bảo bạn đã import thư viện này */}
-          <i className="fas fa-envelope icon"></i>
+          <i className="fas fa-user icon"></i> 
           <input 
             type="text" 
-            placeholder="Email hoặc Tên người dùng" 
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            placeholder="Tên người dùng" 
+            value={userName} // Sử dụng userName
+            onChange={(e) => setUserName(e.target.value)} // Cập nhật userName
             required
           />
         </div>
@@ -80,19 +77,24 @@ const Login = () => {
         
         <button type="submit">Đăng Nhập</button>
 
+        {/* Các phần khác giữ nguyên */}
         <p className="forgot-password"><a href="#">Quên mật khẩu?</a></p>
         <div className="divider">Hoặc</div>
-        
         <button type="button" className="social-button google-btn">
               <i className="fab fa-google"></i> Đăng nhập bằng Google
         </button>
-        
         <div className="register-section">
             <p>Chưa có tài khoản?</p>
-            <a href="#" className="register-link">Đăng Ký Ngay</a>
+            <span
+                className="register-link"
+style={{cursor: 'pointer'}}
+                onClick={() => navigate('/register')}
+            >
+                Đăng Ký Ngay
+            </span>
         </div>
       </form>
-    </div>
+     </div>
   );
 };
 
