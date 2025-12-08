@@ -23,19 +23,39 @@ client = AsyncIOMotorClient(MONGO_URL)
 db = client.aura_db
 users_collection = db.users
 
-# 3. Dữ liệu đầu vào
+# 3. Dữ liệu đầu vào 
 class LoginRequest(BaseModel):
-    email: str
+    userName: str
     password: str
 
+class RegisterRequest(BaseModel):
+    userName: str
+    password: str
+    role: str = "USER"
+
+@app.post("/api/register")
+async def register(data: RegisterRequest):
+    existing_user = await users_collection.find_one({"userName": data.userName})
+    if existing_user:
+        raise HTTPException(status_code=400,details="Tên tài khoản đã được sử dụng")
+    hashed_password = bcrypt.hashpw(data.password.encode('utf-8'), bcrypt.gensalt())
+    new_user = {
+        "userName": data.userName,
+        "password": hashed_password.decode('utf-8'),
+        "role": data.role
+    }
+
+    await users_collection.insert_one(new_user)
+    return {"Tạo tài khoản thành công!"}
+    
 # --- API ĐĂNG NHẬP (BẢN FINAL ĐÃ FIX LỖI 500) ---
 @app.post("/api/login")
 async def login(data: LoginRequest):
     # Bước 1: Tìm user
-    user = await users_collection.find_one({"email": data.email})
+    user = await users_collection.find_one({"userName": data.userName})
     
     if not user:
-        raise HTTPException(status_code=400, detail="Email không tồn tại")
+        raise HTTPException(status_code=400, detail="Tên tài khoản không tồn tại")
     
     # Bước 2: Chuẩn bị dữ liệu mật khẩu
     try:
@@ -60,6 +80,6 @@ async def login(data: LoginRequest):
         "user_info": {
             "full_name": user.get("full_name"),
             "role": user.get("role"),
-            "email": user["email"]
+            "userName": user["userName"]
         }
     }
