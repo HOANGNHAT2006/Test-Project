@@ -1,0 +1,6 @@
+.env
+aura-backend/.env
+.venv/
+node_modules/
+*.keras
+__pycache__/
