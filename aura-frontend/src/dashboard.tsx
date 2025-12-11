@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-// --- MOCK DATA TIN NHẮN ---
+// --- MOCK DATA TIN NHẮN (Giữ nguyên vì chưa có API tin nhắn) ---
 const MOCK_MESSAGES = [
     { id: 1, sender: 'Bác sĩ Hùng', preview: 'Kết quả chụp đáy mắt của bạn đã có, vui lòng xem chi tiết...', time: '10:30 AM', unread: true, type: 'doctor' },
     { id: 2, sender: 'Hệ thống AURA', preview: 'Chào mừng bạn đến với AURA! Hãy bắt đầu hành trình bảo vệ đôi mắt.', time: 'Yesterday', unread: false, type: 'system' },
@@ -21,11 +21,19 @@ const Dashboard: React.FC = () => {
     const [activeTab, setActiveTab] = useState<string>('home');
     const [showUserMenu, setShowUserMenu] = useState(false);
     const [showFabMenu, setShowFabMenu] = useState(false);
-    
-    // MỚI: State cho thông báo
     const [showNotifications, setShowNotifications] = useState(false);
 
-    // --- HÀM LẤY LỊCH SỬ ---
+    // --- STATE CHO HỒ SƠ CÁ NHÂN ---
+    const [isProfileOpen, setIsProfileOpen] = useState(false);
+    const [isSavingProfile, setIsSavingProfile] = useState(false); // Loading khi lưu
+    const [profileData, setProfileData] = useState({
+        email: '',
+        phone: '',
+        age: '',
+        hometown: ''
+    });
+
+    // --- HÀM LẤY LỊCH SỬ KHÁM ---
     const fetchMedicalRecords = async () => {
         const token = localStorage.getItem('token');
         if (!token) return;
@@ -48,7 +56,7 @@ const Dashboard: React.FC = () => {
         }
     };
 
-    // --- LOGIC KHỞI TẠO & POLLING ---
+    // --- LOGIC KHỞI TẠO (LOAD USER & DATA) ---
     useEffect(() => {
         const initData = async () => {
             const token = localStorage.getItem('token');
@@ -58,7 +66,7 @@ const Dashboard: React.FC = () => {
             }
 
             try {
-                // 1. Lấy thông tin User
+                // 1. Lấy thông tin User (bao gồm cả Profile)
                 const userResponse = await fetch('http://127.0.0.1:8000/api/users/me', {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
@@ -69,9 +77,19 @@ const Dashboard: React.FC = () => {
                 }
 
                 const userData = await userResponse.json();
-                setUserName(userData.user_info.userName);
-                setUserRole(userData.user_info.role);
-                setUserId(userData.user_info.id);
+                const info = userData.user_info;
+
+                setUserName(info.userName);
+                setUserRole(info.role);
+                setUserId(info.id);
+
+                // --- CẬP NHẬT DỮ LIỆU PROFILE TỪ BACKEND ---
+                setProfileData({
+                    email: info.email || '',       // Nếu null thì để trống
+                    phone: info.phone || '',
+                    age: info.age || '',
+                    hometown: info.hometown || ''
+                });
 
                 // 2. Lấy dữ liệu lịch sử
                 await fetchMedicalRecords();
@@ -85,6 +103,7 @@ const Dashboard: React.FC = () => {
 
         initData();
 
+        // Polling cập nhật trạng thái AI (3 giây/lần)
         const intervalId = setInterval(() => {
             fetchMedicalRecords();
         }, 3000);
@@ -102,16 +121,57 @@ const Dashboard: React.FC = () => {
     const handleNavClick = (tabName: string) => setActiveTab(tabName);
     const goToUpload = () => navigate('/upload');
     const goToHistory = () => navigate('/history');
-    
-    // MỚI: Hàm xem chi tiết
-    const goToDetail = (recordId: string) => {
-        navigate(`/result/${recordId}`);
-    };
+    const goToDetail = (recordId: string) => navigate(`/result/${recordId}`);
 
     const toggleMenu = () => setShowUserMenu(!showUserMenu);
     const toggleFabMenu = () => setShowFabMenu(!showFabMenu);
     const toggleNotifications = () => setShowNotifications(!showNotifications);
 
+    // --- XỬ LÝ PROFILE (GỌI API THẬT) ---
+    const handleOpenProfile = () => {
+        setIsProfileOpen(true);
+        setShowUserMenu(false);
+    };
+
+    const handleProfileChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const { name, value } = e.target;
+        setProfileData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleSaveProfile = async () => {
+        const token = localStorage.getItem('token');
+        if (!token) return;
+
+        setIsSavingProfile(true);
+        try {
+            const res = await fetch('http://127.0.0.1:8000/api/users/profile', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(profileData)
+            });
+
+            // Quan trọng: Phải đọc data JSON dù thành công hay thất bại để lấy message
+            const data = await res.json(); 
+
+            if (res.ok) {
+                alert("Cập nhật hồ sơ thành công!");
+                setIsProfileOpen(false);
+            } else {
+                // Hiển thị thông báo lỗi cụ thể từ Backend (VD: Email đã tồn tại)
+                alert(data.detail || "Lỗi khi lưu hồ sơ. Vui lòng thử lại.");
+            }
+        } catch (error) {
+            console.error("Lỗi API Profile:", error);
+            alert("Không thể kết nối đến server.");
+        } finally {
+            setIsSavingProfile(false);
+        }
+    };
+
+    // --- TÍNH TOÁN THỐNG KÊ ---
     const totalScans = historyData.length;
     const highRiskCount = historyData.filter(item =>
         item.result.includes('Nặng') ||
@@ -119,9 +179,8 @@ const Dashboard: React.FC = () => {
         item.result.includes('Trung Bình')
     ).length;
 
-    // Lọc ra các thông báo (ví dụ: lấy 5 kết quả mới nhất làm thông báo)
     const recentNotifications = historyData.slice(0, 5);
-    const hasUnread = recentNotifications.some(item => item.status === 'Hoàn thành'); // Logic giả lập
+    const hasUnread = recentNotifications.some(item => item.status === 'Hoàn thành');
 
     // --- RENDER CONTENT ---
     const renderContent = () => {
@@ -190,7 +249,6 @@ const Dashboard: React.FC = () => {
                         <button onClick={goToHistory} style={{ background: 'none', border: 'none', color: '#007bff', cursor: 'pointer', fontWeight: 'bold' }}>Xem tất cả &rarr;</button>
                     </div>
                     
-                    {/* --- BẢNG DỮ LIỆU ĐÃ CẬP NHẬT --- */}
                     <table style={styles.table}>
                         <thead>
                             <tr style={{ borderBottom: '2px solid #eee', textAlign: 'left' }}>
@@ -198,8 +256,7 @@ const Dashboard: React.FC = () => {
                                 <th style={{ padding: '12px' }}>Giờ</th>
                                 <th style={{ padding: '12px' }}>Kết quả AI</th>
                                 <th style={{ padding: '12px' }}>Trạng thái</th>
-                                {/* MỚI: Đổi tiêu đề cột */}
-                                <th style={{ padding: '12px' }}>Xem chi tiết</th>
+                                <th style={{ padding: '12px' }}>Hành động</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -222,13 +279,12 @@ const Dashboard: React.FC = () => {
                                         </span>
                                     </td>
                                     <td style={{ padding: '12px' }}>
-                                        {/* MỚI: Nút Xem Chi Tiết */}
                                         <button 
                                             onClick={() => goToDetail(item.id)}
                                             style={styles.viewDetailBtn}
                                             disabled={item.status !== 'Hoàn thành'}
                                         >
-                                            {item.status === 'Hoàn thành' ? 'Xem' : 'Wait...'}
+                                            {item.status === 'Hoàn thành' ? 'Xem kết quả' : 'Chờ...'}
                                         </button>
                                     </td>
                                 </tr>
@@ -264,7 +320,7 @@ const Dashboard: React.FC = () => {
                     </div>
                     <div style={styles.headerActions}>
                         
-                        {/* --- MỚI: BUTTON THÔNG BÁO --- */}
+                        {/* BUTTON THÔNG BÁO */}
                         <div style={{ position: 'relative' }}>
                             <button style={styles.bellBtn} onClick={toggleNotifications}>
                                 🔔
@@ -287,6 +343,7 @@ const Dashboard: React.FC = () => {
                             )}
                         </div>
 
+                        {/* USER AVATAR & DROPDOWN */}
                         <div style={{ position: 'relative' }}>
                             <div style={styles.avatar} onClick={toggleMenu} title="Nhấn để mở menu">
                                 {userName ? userName.charAt(0).toUpperCase() : 'U'}
@@ -296,7 +353,9 @@ const Dashboard: React.FC = () => {
                                     <div style={styles.dropdownHeader}>
                                         <strong>{userName}</strong><br/><small>{userRole}</small>
                                     </div>
-                                    <button style={styles.dropdownItem} onClick={handleLogout}>🚪 Đăng xuất</button>
+                                    <button style={styles.dropdownItem} onClick={handleOpenProfile}>👤 Hồ sơ cá nhân</button>
+                                    <div style={{height: '1px', background: '#eee', margin: '5px 0'}}></div>
+                                    <button style={{...styles.dropdownItem, color: '#dc3545'}} onClick={handleLogout}>🚪 Đăng xuất</button>
                                 </div>
                             )}
                         </div>
@@ -306,6 +365,7 @@ const Dashboard: React.FC = () => {
                 {renderContent()}
             </main>
 
+            {/* Floating Action Button */}
             <div style={styles.fabContainer}>
                 {showFabMenu && (
                     <div style={styles.fabMenu}>
@@ -314,13 +374,78 @@ const Dashboard: React.FC = () => {
                 )}
                 <button style={styles.fabButton} onClick={toggleFabMenu} title="Chức năng mới">{showFabMenu ? '✕' : '+'}</button>
             </div>
+
+            {/* --- MODAL HỒ SƠ CÁ NHÂN --- */}
+            {isProfileOpen && (
+                <div style={styles.modalOverlay}>
+                    <div style={styles.modalContent}>
+                        <div style={styles.modalHeader}>
+                            <h3 style={{margin: 0}}>Hồ sơ cá nhân</h3>
+                            <button onClick={() => setIsProfileOpen(false)} style={styles.closeBtn}>✕</button>
+                        </div>
+                        <div style={styles.modalBody}>
+                            <div style={styles.formGroup}>
+                                <label style={styles.label}>Email</label>
+                                <input 
+                                    type="email" 
+                                    name="email"
+                                    value={profileData.email}
+                                    onChange={handleProfileChange}
+                                    style={styles.input} 
+                                    placeholder="nhap@email.com"
+                                />
+                            </div>
+                            <div style={styles.formGroup}>
+                                <label style={styles.label}>Số điện thoại</label>
+                                <input 
+                                    type="tel" 
+                                    name="phone"
+                                    value={profileData.phone}
+                                    onChange={handleProfileChange}
+                                    style={styles.input} 
+                                    placeholder="09xx..."
+                                />
+                            </div>
+                            <div style={styles.formGroup}>
+                                <label style={styles.label}>Tuổi</label>
+                                <input 
+                                    type="number" 
+                                    name="age"
+                                    value={profileData.age}
+                                    onChange={handleProfileChange}
+                                    style={styles.input} 
+                                    placeholder="Nhập tuổi"
+                                />
+                            </div>
+                            <div style={styles.formGroup}>
+                                <label style={styles.label}>Quê quán</label>
+                                <textarea 
+                                    name="hometown"
+                                    value={profileData.hometown}
+                                    onChange={handleProfileChange}
+                                    style={styles.textArea} 
+                                    rows={3}
+                                    placeholder="Nhập địa chỉ..."
+                                ></textarea>
+                            </div>
+                        </div>
+                        <div style={styles.modalFooter}>
+                            <button onClick={() => setIsProfileOpen(false)} style={styles.secondaryBtn} disabled={isSavingProfile}>
+                                Hủy bỏ
+                            </button>
+                            <button onClick={handleSaveProfile} style={styles.primaryBtn} disabled={isSavingProfile}>
+                                {isSavingProfile ? 'Đang lưu...' : 'Lưu thay đổi'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
 
-// --- STYLES CẬP NHẬT ---
+// --- STYLES ---
 const styles: { [key: string]: React.CSSProperties } = {
-    // ... Copy lại styles cũ ...
     container: { display: 'flex', width: '100vw', height: '100vh', fontFamily: "'Segoe UI', sans-serif", backgroundColor: '#f4f6f9', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' },
     sidebar: { width: '260px', backgroundColor: '#1e293b', color: 'white', display: 'flex', flexDirection: 'column', padding: '30px 20px', boxSizing: 'border-box', flexShrink: 0, alignItems: 'center' },
     logoArea: { textAlign: 'center', marginBottom: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center' },
@@ -332,21 +457,20 @@ const styles: { [key: string]: React.CSSProperties } = {
     header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px', flexShrink: 0, backgroundColor: '#1e293b', padding: '20px 30px', borderRadius: '16px', color: 'white', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' },
     headerActions: { display: 'flex', alignItems: 'center', gap: '20px' },
     
-    // Bell Styles
+    // Notification & Bell
     bellBtn: { background: 'none', border: 'none', fontSize: '20px', cursor: 'pointer', color: 'white', position: 'relative' },
     bellBadge: { position: 'absolute', top: '0', right: '0', width: '8px', height: '8px', backgroundColor: '#dc3545', borderRadius: '50%' },
     notificationDropdown: { position: 'absolute', top: '45px', right: '-10px', width: '300px', backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 4px 15px rgba(0,0,0,0.15)', zIndex: 1100, color: '#333', overflow: 'hidden' },
     notificationItem: { padding: '12px 15px', borderBottom: '1px solid #eee', cursor: 'pointer', transition: 'background 0.2s', backgroundColor: '#fff' },
     
+    // User Menu
     avatar: { width: '45px', height: '45px', borderRadius: '50%', backgroundColor: '#007bff', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', cursor: 'pointer', userSelect: 'none', border: '2px solid white', boxShadow: '0 2px 5px rgba(0,0,0,0.2)' },
     dropdownMenu: { position: 'absolute', top: '60px', right: '0', width: '220px', backgroundColor: 'white', borderRadius: '8px', boxShadow: '0 4px 15px rgba(0,0,0,0.1)', padding: '10px 0', zIndex: 1000, border: '1px solid #eee', color: '#333' },
     dropdownHeader: { padding: '10px 20px', borderBottom: '1px solid #eee', marginBottom: '5px', backgroundColor: '#f8f9fa', color: '#333', fontWeight: 'bold', fontSize: '14px' },
     dropdownItem: { display: 'block', width: '100%', padding: '12px 20px', textAlign: 'left', background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', color: '#333', transition: 'background 0.2s' },
     
-    // View Detail Button Style
+    // Buttons & Layouts
     viewDetailBtn: { backgroundColor: '#007bff', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' },
-    
-    // ... Các style layout khác giữ nguyên ...
     contentGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '24px' },
     cardInfo: { backgroundColor: 'white', padding: '30px', borderRadius: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' },
     card: { backgroundColor: 'white', padding: '30px', borderRadius: '16px', boxShadow: '0 2px 10px rgba(0,0,0,0.03)' },
@@ -362,6 +486,20 @@ const styles: { [key: string]: React.CSSProperties } = {
     messageItem: { display: 'flex', alignItems: 'center', gap: '15px', padding: '15px', borderBottom: '1px solid #eee', cursor: 'pointer', transition: 'background 0.2s' },
     messageAvatar: { width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#64748b' },
     unreadDot: { width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#007bff' },
+
+    // Modal Styles
+    modalOverlay: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+    modalContent: { backgroundColor: 'white', width: '400px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)', overflow: 'hidden', animation: 'fadeIn 0.2s ease-out' },
+    modalHeader: { padding: '20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8f9fa' },
+    closeBtn: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#666' },
+    modalBody: { padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' },
+    formGroup: { display: 'flex', flexDirection: 'column', gap: '5px' },
+    label: { fontSize: '14px', fontWeight: '500', color: '#444' },
+    input: { padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', outline: 'none' },
+    textArea: { padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', outline: 'none', resize: 'none' },
+    modalFooter: { padding: '20px', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'flex-end', gap: '10px' },
+    primaryBtn: { backgroundColor: '#007bff', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', opacity: 1, transition: '0.2s' },
+    secondaryBtn: { backgroundColor: '#e2e8f0', color: '#475569', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' },
 };
 
 export default Dashboard;

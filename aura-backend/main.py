@@ -179,17 +179,23 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     except JWTError:
         raise credentials_exception
 
+    # Tìm user theo userName
     user = await users_collection.find_one({"userName": userName})
+    
     if user is None:
         raise credentials_exception
         
     return {
-        "userName": user["userName"], 
+       "userName": user["userName"], 
         "role": user.get("role"),
-        "id": str(user["_id"])
+        "id": str(user["_id"]),
+        "email": user.get("email", ""),
+        "phone": user.get("phone", ""),
+        "age": user.get("age", ""),
+        "hometown": user.get("hometown", "")
     }
 
-# --- MODELS (GIỮ NGUYÊN) ---
+# --- MODELS ---
 class LoginRequest(BaseModel):
     userName: str
     password: str
@@ -201,6 +207,16 @@ class RegisterRequest(BaseModel):
 
 class GoogleLoginRequest(BaseModel):
     token: str
+
+class UserProfileUpdate(BaseModel):
+    email: str = None
+    phone: str = None
+    age: str = None      
+    hometown: str = None
+
+# MỚI: Model để nhận request đổi username
+class UpdateUsernameRequest(BaseModel):
+    new_username: str
 
 # --- API ENDPOINTS ---
 
@@ -345,8 +361,10 @@ async def get_single_record(record_id: str, current_user: dict = Depends(get_cur
         print(f"Lỗi: {e}")
         raise HTTPException(status_code=400, detail="ID không hợp lệ")
     
+# --- API GOOGLE LOGIN (CẬP NHẬT) ---
 @app.post("/api/google-login")
 async def google_login(data: GoogleLoginRequest):
+    # 1. Lấy thông tin từ Google
     google_response = requests.get(
         f"https://www.googleapis.com/oauth2/v3/userinfo?access_token={data.token}"
     )
@@ -355,35 +373,133 @@ async def google_login(data: GoogleLoginRequest):
         raise HTTPException(status_code=400, detail="Token Google không hợp lệ hoặc đã hết hạn")
         
     google_user = google_response.json()
-    
     email = google_user.get('email')
     name = google_user.get('name', 'Google User')
     
     if not email:
         raise HTTPException(status_code=400, detail="Không lấy được email từ Google")
 
-    user = await users_collection.find_one({"userName": email})
+    # 2. Tìm User trong DB bằng EMAIL (Tránh trùng lặp)
+    user = await users_collection.find_one({"email": email})
+    
+    is_new_user = False
     
     if not user:
+        # Trường hợp chưa có tài khoản: Tạo mới
+        # Tạm thời lưu userName = email. Sau đó Client sẽ gọi API đổi tên.
         new_user = {
-            "userName": email,
+            "userName": email, 
+            "email": email,    # Quan trọng: Lưu email để đối chiếu
             "password": "", 
             "role": "USER",
             "auth_provider": "google",
-            "full_name": name
+            "full_name": name,
+            "created_at": datetime.utcnow()
         }
-        await users_collection.insert_one(new_user)
+        result = await users_collection.insert_one(new_user)
         user = new_user 
+        user["_id"] = result.inserted_id
+        is_new_user = True # Đánh dấu là user mới
+    else:
+        # Trường hợp đã có tài khoản, nhưng userName vẫn giống email -> coi như user mới cần đổi tên
+        if user.get("userName") == email:
+            is_new_user = True
             
+    # 3. Tạo Token
     token_data = {"sub": user["userName"], "role": user.get("role", "USER")}
     access_token = create_access_token(token_data)
-    standardized_role = user.get("role", "USER").lower()
+    
     return {
         "message": "Đăng nhập Google thành công",
         "access_token": access_token,
         "token_type": "bearer",
         "user_info": {
             "userName": user["userName"],
-            "role": user.get("role", "USER")
-        }
+            "role": user.get("role", "USER"),
+            "email": user.get("email")
+        },
+        "is_new_user": is_new_user # Backend trả về cờ này để Frontend biết đường chuyển hướng
     }
+
+# --- API ĐỔI TÊN NGƯỜI DÙNG (SET USERNAME) ---
+@app.put("/api/users/set-username")
+async def set_username(data: UpdateUsernameRequest, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
+    new_username = data.new_username.strip()
+    
+    # 1. Validate
+    if len(new_username) < 3:
+        raise HTTPException(status_code=400, detail="Tên người dùng phải có ít nhất 3 ký tự")
+    
+    # 2. Kiểm tra trùng lặp
+    existing_user = await users_collection.find_one({"userName": new_username})
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Tên người dùng này đã tồn tại, vui lòng chọn tên khác")
+
+    # 3. Cập nhật vào DB
+    await users_collection.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"userName": new_username}}
+    )
+    
+    # 4. Cấp lại Token mới (Vì Token cũ chứa userName cũ, giờ đổi rồi phải cấp lại)
+    new_token_data = {"sub": new_username, "role": current_user["role"]}
+    new_access_token = create_access_token(new_token_data)
+
+    return {
+        "message": "Cập nhật tên người dùng thành công",
+        "new_access_token": new_access_token, # Frontend cần lưu lại token mới này
+        "new_username": new_username
+    }
+
+# --- TRONG FILE main.py ---
+
+@app.put("/api/users/profile")
+async def update_user_profile(data: UserProfileUpdate, current_user: dict = Depends(get_current_user)):
+    try:
+        user_id = current_user["id"]
+        
+        # 1. KIỂM TRA EMAIL TRÙNG LẶP (Logic Mới)
+        if data.email:
+            # Tìm xem có ai khác đang dùng email này không
+            # Điều kiện: Email trùng VÀ ID không phải là của người đang sửa
+            existing_email = await users_collection.find_one({
+                "email": data.email,
+                "_id": {"$ne": ObjectId(user_id)} # $ne nghĩa là Not Equal (Không bằng)
+            })
+            
+            if existing_email:
+                raise HTTPException(status_code=400, detail="Email này đã được sử dụng bởi tài khoản khác.")
+
+        # 2. KIỂM TRA SỐ ĐIỆN THOẠI TRÙNG LẶP (Nên làm luôn)
+        if data.phone:
+            existing_phone = await users_collection.find_one({
+                "phone": data.phone,
+                "_id": {"$ne": ObjectId(user_id)}
+            })
+            
+            if existing_phone:
+                raise HTTPException(status_code=400, detail="Số điện thoại này đã được sử dụng.")
+
+        # 3. Tạo data update
+        update_data = {
+            "email": data.email,
+            "phone": data.phone,
+            "age": data.age,
+            "hometown": data.hometown
+        }
+        
+        # 4. Lưu vào DB
+        await users_collection.update_one(
+            {"_id": ObjectId(user_id)},
+            {"$set": update_data}
+        )
+        
+        return {"message": "Cập nhật hồ sơ thành công", "data": update_data}
+        
+    except HTTPException as http_err:
+        # Bắt lỗi HTTP mình vừa raise ở trên để trả về ngay
+        raise http_err
+    except Exception as e:
+        print(f"Lỗi update profile: {e}")
+        raise HTTPException(status_code=500, detail="Lỗi server khi cập nhật hồ sơ")

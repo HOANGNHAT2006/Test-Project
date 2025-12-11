@@ -1,17 +1,16 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useGoogleLogin } from '@react-oauth/google'; // <--- 1. IMPORT HOOK
+import { useGoogleLogin } from '@react-oauth/google'; 
 import './App.css';
 
 const Login = () => {
-  // Đổi tên biến trạng thái thành 'userName'
   const [userName, setUserName] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(''); 
   
   const navigate = useNavigate(); 
 
-  // --- 2. LOGIC ĐĂNG NHẬP GOOGLE ---
+  // --- 2. LOGIC ĐĂNG NHẬP GOOGLE (ĐÃ CẬP NHẬT) ---
   const loginWithGoogle = useGoogleLogin({
     onSuccess: async (tokenResponse) => {
         try {
@@ -29,19 +28,25 @@ const Login = () => {
             if (!response.ok) {
                 setError(data.detail || 'Đăng nhập Google thất bại');
             } else {
-                // Lưu Token và thông tin user
+                // 1. Luôn lưu Token và thông tin user trước
                 localStorage.setItem('token', data.access_token);
                 localStorage.setItem('user_info', JSON.stringify(data.user_info));
               
-                const userInfo = data.user_info;
-                const standardizedRole = userInfo.role ? userInfo.role.toLowerCase() : '';
-                console.log("Vai trò sau chuẩn hóa:", standardizedRole);
-                if (standardizedRole === 'doctor') { 
-                  // Nếu là Bác sĩ, chuyển hướng đến DashboardDr
-                  navigate('/dashboarddr', { replace: true });
+                // 2. KIỂM TRA: CÓ PHẢI USER MỚI (HOẶC CHƯA ĐỔI TÊN) KHÔNG?
+                if (data.is_new_user) {
+                    console.log("User mới -> Chuyển đến trang đặt tên");
+                    navigate('/set-username');
                 } else {
-                  // Nếu là người dùng khác (bệnh nhân,...) chuyển hướng đến Dashboard chung
-                  navigate('/dashboard', { replace: true });
+                    // 3. NẾU USER CŨ -> ĐIỀU HƯỚNG THEO ROLE NHƯ CŨ
+                    const userInfo = data.user_info;
+                    const standardizedRole = userInfo.role ? userInfo.role.toLowerCase() : '';
+                    console.log("Vai trò:", standardizedRole);
+                    
+                    if (standardizedRole === 'doctor') { 
+                        navigate('/dashboarddr', { replace: true });
+                    } else {
+                        navigate('/dashboard', { replace: true });
+                    }
                 }
             }
         } catch (err) {
@@ -52,7 +57,7 @@ const Login = () => {
     onError: () => setError('Đăng nhập Google thất bại (Popup closed)'),
   });
 
-  // --- LOGIC ĐĂNG NHẬP THƯỜNG ---
+  // --- LOGIC ĐĂNG NHẬP THƯỜNG (Giữ nguyên) ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -75,14 +80,11 @@ const Login = () => {
             localStorage.setItem('user_info', JSON.stringify(data.user_info));
             const userInfo = data.user_info;
 
-          const standardizedRole = userInfo.role ? userInfo.role.toLowerCase() : '';
-          console.log("Vai trò sau chuẩn hóa:", standardizedRole);
-          if (standardizedRole === 'doctor') {
-              // Nếu là Bác sĩ, chuyển hướng đến DashboardDr
-              navigate('/dashboarddr', { replace: true });
+            const standardizedRole = userInfo.role ? userInfo.role.toLowerCase() : '';
+            if (standardizedRole === 'doctor') {
+                 navigate('/dashboarddr', { replace: true });
             } else {
-              // Nếu là người dùng khác (bệnh nhân,...) chuyển hướng đến Dashboard chung
-               navigate('/dashboard', { replace: true });
+                 navigate('/dashboard', { replace: true });
             }
         }
 
@@ -129,7 +131,6 @@ const Login = () => {
         
         <div className="divider">Hoặc</div>
         
-        {/* --- 3. GẮN SỰ KIỆN VÀO NÚT GOOGLE --- */}
         <button 
             type="button" 
             className="social-button google-btn"

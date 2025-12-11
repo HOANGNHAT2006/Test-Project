@@ -6,7 +6,9 @@ import DashboardDr from './dashboarddr';
 import './App.css';
 import Register from './Register';
 import Upload from './Upload';
-import Analysis from './Analysis'; // Component hiển thị kết quả
+import Analysis from './Analysis'; 
+// --- 1. IMPORT TRANG MỚI ---
+import SetUsername from './setUsername'; // Hãy chắc chắn đường dẫn đúng với nơi bạn lưu file
 
 const getUserRoleFromStorage = () => {
     try {
@@ -43,10 +45,11 @@ const App: React.FC = () => {
           <Route path="/dashboard" element={<ProtectedRoute element={<Dashboard />} />} />
           <Route path="/dashboarddr" element={<ProtectedRoute element={<DashboardDr />} />} />
           <Route path="/upload" element={<ProtectedRoute element={<Upload />} />} />
-          
-          {/* --- SỬA DÒNG NÀY ĐỂ KHỚP VỚI DASHBOARD --- */}
-          {/* Dashboard gọi /result/:id nên ở đây phải khai báo là /result/:id */}
           <Route path="/result/:id" element={<ProtectedRoute element={<Analysis />} />} />
+          
+          {/* --- 2. THÊM ROUTE CHO TRANG ĐẶT TÊN USERNAME --- */}
+          {/* Trang này cũng cần ProtectedRoute vì user phải có Token tạm mới vào được */}
+          <Route path="/set-username" element={<ProtectedRoute element={<SetUsername />} />} />
           
           {/* 3. Trang mặc định */}
           <Route 
@@ -54,7 +57,7 @@ const App: React.FC = () => {
             element={
               !!localStorage.getItem('token') 
                 ? (
-                     getUserRoleFromStorage() === 'doctor' 
+                      getUserRoleFromStorage() === 'doctor' 
                       ? <Navigate to="/dashboarddr" replace /> 
                       : <Navigate to="/dashboard" replace />
                   )
