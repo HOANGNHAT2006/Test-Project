@@ -16,6 +16,7 @@ from fastapi.security import OAuth2PasswordBearer
 import cloudinary
 import cloudinary.uploader
 from bson.objectid import ObjectId
+import io
 
 # --- THƯ VIỆN AI ---
 from tensorflow.keras.models import load_model # <--- MỚI: Để load model
@@ -97,8 +98,44 @@ def preprocess_image_ben_graham(image_bytes):
     img_batch = np.expand_dims(img, axis=0)
     
     return img_batch
+# --- HÀM VẼ CHÚ THÍCH (MÔ PHỎNG DỰA TRÊN KẾT QUẢ PHÂN LOẠI) ---
+def generate_annotated_image(image_bytes: bytes, class_name: str) -> bytes:
+    """Tạo ra ảnh có chú thích (chủ yếu là khung và text) dựa trên kết quả phân loại."""
+    # 1. Đọc ảnh gốc bằng OpenCV
+    nparr = np.frombuffer(image_bytes, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-# --- TÁC VỤ NGẦM: AI PHÂN TÍCH THỰC TẾ ---
+    if img is None:
+        raise ValueError("Không thể đọc bytes hình ảnh bằng OpenCV.")
+
+    # 2. Tạo một bản sao để vẽ lên
+    h, w, _ = img.shape
+    annotated_img = img.copy()
+
+    # 3. MÔ PHỎNG VẼ CHÚ THÍCH
+    
+    # Thiết lập màu sắc và text
+    text = f"Diagnosis: {class_name}"
+    color = (0, 255, 0) # Xanh lá cho bình thường
+    if "Nặng" in class_name or "Tăng sinh" in class_name:
+        color = (0, 0, 255) # Đỏ cho trường hợp nặng
+
+    # Vẽ hộp text ở góc trên bên trái
+    cv2.putText(annotated_img, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2, cv2.LINE_AA)
+    
+    # MÔ PHỎNG VẼ KHUNG/KHOANH VÙNG: Vẽ một hình tròn/vuông tượng trưng cho tổn thương
+    if "DR" in class_name or "Nhẹ" in class_name or "Trung bình" in class_name:
+        cv2.circle(annotated_img, (w - 50, h - 50), 30, color, -1) # Vẽ chấm tròn
+
+    # 4. Mã hóa ảnh đã vẽ thành bytes để upload
+    is_success, buffer = cv2.imencode(".png", annotated_img)
+    if not is_success:
+        raise Exception("Lỗi mã hóa ảnh đã vẽ thành PNG bytes.")
+        
+    return buffer.tobytes()
+
+# --- TÁC VỤ NGẦM: AI PHÂN TÍCH THỰC TẾ (ĐÃ CẬP NHẬT) ---
+# --- TÁC VỤ NGẦM: AI PHÂN TÍCH THỰC TẾ (ĐÃ CHỈNH SỬA CHO CLOUDINARY) ---
 async def real_ai_analysis(record_id: str, image_url: str):
     print(f"🤖 AI đang bắt đầu phân tích hồ sơ: {record_id}...")
     
@@ -107,44 +144,58 @@ async def real_ai_analysis(record_id: str, image_url: str):
         return
 
     try:
-        # 1. Tải ảnh từ Cloudinary về bộ nhớ RAM (không cần lưu ra file)
+        # 1. Tải ảnh từ Cloudinary về bộ nhớ RAM (bytes)
         response = requests.get(image_url)
         if response.status_code != 200:
             raise Exception("Không thể tải ảnh từ Cloudinary")
         
         image_bytes = response.content
 
-        # 2. Xử lý ảnh (Preprocessing)
+        # 2. Xử lý ảnh (Preprocessing) & Dự đoán
         processed_image = preprocess_image_ben_graham(image_bytes)
-
-        # 3. Dự đoán (Inference)
         predictions = model.predict(processed_image)
         
-        # 4. Lấy kết quả
-        class_idx = np.argmax(predictions[0])       # Lấy vị trí có điểm cao nhất (ví dụ: 3)
-        confidence = float(np.max(predictions[0]))  # Lấy điểm tin cậy (ví dụ: 0.95)
-        result_text = CLASS_NAMES[class_idx]        # Lấy tên bệnh (ví dụ: Nặng)
+        # 3. Lấy kết quả chẩn đoán
+        class_idx = np.argmax(predictions[0]) 
+        confidence = float(np.max(predictions[0]))
+        result_text = CLASS_NAMES[class_idx]
 
-        # Logic hiển thị: Nếu độ tin cậy quá thấp (< 50%), báo cần kiểm tra lại
-        final_result = f"{result_text} - Độ tin cậy: {confidence*100:.2f}%"
+        final_result = f"{result_text} ({confidence*100:.2f}%)"
         
-        print(f"✅ Kết quả AI: {final_result}")
-
-        # 5. Cập nhật vào MongoDB
+        # --- BƯỚC MỚI: TẠO ẢNH CÓ CHÚ THÍCH (ANNOTATION) ---
+        annotated_image_bytes = generate_annotated_image(image_bytes, result_text)
+        
+        # 4. Upload ảnh có chú thích lên Cloudinary
+        # SỬ DỤNG io.BytesIO để chuyển bytes sang file-like object
+        annotated_file_object = io.BytesIO(annotated_image_bytes) 
+        
+        upload_result = cloudinary.uploader.upload(
+            file=annotated_file_object, 
+            public_id=f"annotated_{record_id}", 
+            folder="aura_annotated",
+            resource_type="image"
+        )
+        annotated_url = upload_result.get("secure_url")
+        print(f"✅ Ảnh chú thích đã được lưu: {annotated_url}")
+        
+        # 5. Cập nhật vào MongoDB (LƯU KẾT QUẢ CHẨN ĐOÁN VÀ URL MỚI)
         await db.medical_records.update_one(
             {"_id": ObjectId(record_id)},
             {
                 "$set": {
                     "ai_analysis_status": "COMPLETED",
                     "ai_result": final_result,
-                    "ai_confidence": confidence, # Lưu thêm chỉ số tin cậy để sau này dùng
-                    "ai_raw_class": int(class_idx)
+                    "ai_confidence": confidence, 
+                    "ai_raw_class": int(class_idx),
+                    "annotated_image_url": annotated_url # <-- Cập nhật URL ảnh có chú thích
                 }
             }
         )
+        print(f"✅ Hồ sơ {record_id} đã được cập nhật hoàn tất.")
+    
     except Exception as e:
         print(f"❌ Lỗi khi AI phân tích: {e}")
-        # Cập nhật trạng thái lỗi vào DB để User biết
+        # Cập nhật trạng thái lỗi vào DB
         await db.medical_records.update_one(
             {"_id": ObjectId(record_id)},
             {
@@ -192,7 +243,12 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         "email": user.get("email", ""),
         "phone": user.get("phone", ""),
         "age": user.get("age", ""),
-        "hometown": user.get("hometown", "")
+        "hometown": user.get("hometown", ""),
+        "insurance_id": user.get("insurance_id", ""),
+        "height": user.get("height", ""),
+        "weight": user.get("weight", ""),
+        "gender": user.get("gender", ""),
+        "nationality": user.get("nationality", ""),
     }
 
 # --- MODELS ---
@@ -213,6 +269,11 @@ class UserProfileUpdate(BaseModel):
     phone: str = None
     age: str = None      
     hometown: str = None
+    insurance_id: str = None # Mã bảo hiểm y tế
+    height: str = None # Chiều cao
+    weight: str = None # Cân nặng
+    gender: str = None # Giới tính
+    nationality: str = None # Quốc tịch
 
 # MỚI: Model để nhận request đổi username
 class UpdateUsernameRequest(BaseModel):
@@ -337,6 +398,8 @@ async def get_medical_records(current_user: dict = Depends(get_current_user)):
         
     return {"history": results}
 
+# --- TRONG API GET /api/medical-records/{record_id} ---
+
 @app.get("/api/medical-records/{record_id}")
 async def get_single_record(record_id: str, current_user: dict = Depends(get_current_user)):
     try:
@@ -354,7 +417,8 @@ async def get_single_record(record_id: str, current_user: dict = Depends(get_cur
             "time": record["upload_date"].strftime("%H:%M"),
             "result": record["ai_result"],
             "status": "Hoàn thành" if record["ai_analysis_status"] == "COMPLETED" else "Đang xử lý",
-            "image_url": record["image_url"],
+            "image_url": record["image_url"], # Ảnh gốc
+            "annotated_image_url": record.get("annotated_image_url"), # <-- Trả về URL ảnh chú thích
             "doctor_note": record.get("doctor_note", "Chưa có ghi chú từ bác sĩ.") 
         }
     except Exception as e:
@@ -486,7 +550,12 @@ async def update_user_profile(data: UserProfileUpdate, current_user: dict = Depe
             "email": data.email,
             "phone": data.phone,
             "age": data.age,
-            "hometown": data.hometown
+            "hometown": data.hometown,
+            "insurance_id": data.insurance_id,
+            "height": data.height,
+            "weight": data.weight,
+            "gender": data.gender,
+            "nationality": data.nationality,
         }
         
         # 4. Lưu vào DB

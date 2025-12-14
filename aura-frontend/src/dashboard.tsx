@@ -23,16 +23,6 @@ const Dashboard: React.FC = () => {
     const [showFabMenu, setShowFabMenu] = useState(false);
     const [showNotifications, setShowNotifications] = useState(false);
 
-    // --- STATE CHO HỒ SƠ CÁ NHÂN ---
-    const [isProfileOpen, setIsProfileOpen] = useState(false);
-    const [isSavingProfile, setIsSavingProfile] = useState(false); // Loading khi lưu
-    const [profileData, setProfileData] = useState({
-        email: '',
-        phone: '',
-        age: '',
-        hometown: ''
-    });
-
     // --- HÀM LẤY LỊCH SỬ KHÁM ---
     const fetchMedicalRecords = async () => {
         const token = localStorage.getItem('token');
@@ -66,7 +56,7 @@ const Dashboard: React.FC = () => {
             }
 
             try {
-                // 1. Lấy thông tin User (bao gồm cả Profile)
+                // 1. Lấy thông tin User
                 const userResponse = await fetch('http://127.0.0.1:8000/api/users/me', {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
@@ -82,14 +72,6 @@ const Dashboard: React.FC = () => {
                 setUserName(info.userName);
                 setUserRole(info.role);
                 setUserId(info.id);
-
-                // --- CẬP NHẬT DỮ LIỆU PROFILE TỪ BACKEND ---
-                setProfileData({
-                    email: info.email || '',       // Nếu null thì để trống
-                    phone: info.phone || '',
-                    age: info.age || '',
-                    hometown: info.hometown || ''
-                });
 
                 // 2. Lấy dữ liệu lịch sử
                 await fetchMedicalRecords();
@@ -127,48 +109,10 @@ const Dashboard: React.FC = () => {
     const toggleFabMenu = () => setShowFabMenu(!showFabMenu);
     const toggleNotifications = () => setShowNotifications(!showNotifications);
 
-    // --- XỬ LÝ PROFILE (GỌI API THẬT) ---
-    const handleOpenProfile = () => {
-        setIsProfileOpen(true);
-        setShowUserMenu(false);
-    };
-
-    const handleProfileChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setProfileData(prev => ({ ...prev, [name]: value }));
-    };
-
-    const handleSaveProfile = async () => {
-        const token = localStorage.getItem('token');
-        if (!token) return;
-
-        setIsSavingProfile(true);
-        try {
-            const res = await fetch('http://127.0.0.1:8000/api/users/profile', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify(profileData)
-            });
-
-            // Quan trọng: Phải đọc data JSON dù thành công hay thất bại để lấy message
-            const data = await res.json(); 
-
-            if (res.ok) {
-                alert("Cập nhật hồ sơ thành công!");
-                setIsProfileOpen(false);
-            } else {
-                // Hiển thị thông báo lỗi cụ thể từ Backend (VD: Email đã tồn tại)
-                alert(data.detail || "Lỗi khi lưu hồ sơ. Vui lòng thử lại.");
-            }
-        } catch (error) {
-            console.error("Lỗi API Profile:", error);
-            alert("Không thể kết nối đến server.");
-        } finally {
-            setIsSavingProfile(false);
-        }
+    // --- HÀM MỚI: CHUYỂN HƯỚNG ĐẾN TRANG HỒ SƠ ---
+    const goToProfilePage = () => {
+        setShowUserMenu(false); // Đóng dropdown menu
+        navigate('/profile');  // Chuyển hướng đến trang /profile
     };
 
     // --- TÍNH TOÁN THỐNG KÊ ---
@@ -353,7 +297,8 @@ const Dashboard: React.FC = () => {
                                     <div style={styles.dropdownHeader}>
                                         <strong>{userName}</strong><br/><small>{userRole}</small>
                                     </div>
-                                    <button style={styles.dropdownItem} onClick={handleOpenProfile}>👤 Hồ sơ cá nhân</button>
+                                    {/* --- ĐÃ THAY BẰNG HÀM CHUYỂN HƯỚNG --- */}
+                                    <button style={styles.dropdownItem} onClick={goToProfilePage}>👤 Hồ sơ cá nhân</button>
                                     <div style={{height: '1px', background: '#eee', margin: '5px 0'}}></div>
                                     <button style={{...styles.dropdownItem, color: '#dc3545'}} onClick={handleLogout}>🚪 Đăng xuất</button>
                                 </div>
@@ -374,77 +319,13 @@ const Dashboard: React.FC = () => {
                 )}
                 <button style={styles.fabButton} onClick={toggleFabMenu} title="Chức năng mới">{showFabMenu ? '✕' : '+'}</button>
             </div>
-
-            {/* --- MODAL HỒ SƠ CÁ NHÂN --- */}
-            {isProfileOpen && (
-                <div style={styles.modalOverlay}>
-                    <div style={styles.modalContent}>
-                        <div style={styles.modalHeader}>
-                            <h3 style={{margin: 0}}>Hồ sơ cá nhân</h3>
-                            <button onClick={() => setIsProfileOpen(false)} style={styles.closeBtn}>✕</button>
-                        </div>
-                        <div style={styles.modalBody}>
-                            <div style={styles.formGroup}>
-                                <label style={styles.label}>Email</label>
-                                <input 
-                                    type="email" 
-                                    name="email"
-                                    value={profileData.email}
-                                    onChange={handleProfileChange}
-                                    style={styles.input} 
-                                    placeholder="nhap@email.com"
-                                />
-                            </div>
-                            <div style={styles.formGroup}>
-                                <label style={styles.label}>Số điện thoại</label>
-                                <input 
-                                    type="tel" 
-                                    name="phone"
-                                    value={profileData.phone}
-                                    onChange={handleProfileChange}
-                                    style={styles.input} 
-                                    placeholder="09xx..."
-                                />
-                            </div>
-                            <div style={styles.formGroup}>
-                                <label style={styles.label}>Tuổi</label>
-                                <input 
-                                    type="number" 
-                                    name="age"
-                                    value={profileData.age}
-                                    onChange={handleProfileChange}
-                                    style={styles.input} 
-                                    placeholder="Nhập tuổi"
-                                />
-                            </div>
-                            <div style={styles.formGroup}>
-                                <label style={styles.label}>Quê quán</label>
-                                <textarea 
-                                    name="hometown"
-                                    value={profileData.hometown}
-                                    onChange={handleProfileChange}
-                                    style={styles.textArea} 
-                                    rows={3}
-                                    placeholder="Nhập địa chỉ..."
-                                ></textarea>
-                            </div>
-                        </div>
-                        <div style={styles.modalFooter}>
-                            <button onClick={() => setIsProfileOpen(false)} style={styles.secondaryBtn} disabled={isSavingProfile}>
-                                Hủy bỏ
-                            </button>
-                            <button onClick={handleSaveProfile} style={styles.primaryBtn} disabled={isSavingProfile}>
-                                {isSavingProfile ? 'Đang lưu...' : 'Lưu thay đổi'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
+            
+            {/* --- ĐÃ XÓA TOÀN BỘ MODAL HỒ SƠ CÁ NHÂN KHỎI ĐÂY --- */}
         </div>
     );
 };
 
-// --- STYLES ---
+// --- STYLES (Đã loại bỏ các styles Modal không cần thiết, giữ lại các style chung) ---
 const styles: { [key: string]: React.CSSProperties } = {
     container: { display: 'flex', width: '100vw', height: '100vh', fontFamily: "'Segoe UI', sans-serif", backgroundColor: '#f4f6f9', margin: 0, padding: 0, overflow: 'hidden', position: 'relative' },
     sidebar: { width: '260px', backgroundColor: '#1e293b', color: 'white', display: 'flex', flexDirection: 'column', padding: '30px 20px', boxSizing: 'border-box', flexShrink: 0, alignItems: 'center' },
@@ -487,19 +368,19 @@ const styles: { [key: string]: React.CSSProperties } = {
     messageAvatar: { width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: '#64748b' },
     unreadDot: { width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#007bff' },
 
-    // Modal Styles
-    modalOverlay: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center' },
-    modalContent: { backgroundColor: 'white', width: '400px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)', overflow: 'hidden', animation: 'fadeIn 0.2s ease-out' },
-    modalHeader: { padding: '20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8f9fa' },
-    closeBtn: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#666' },
-    modalBody: { padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' },
-    formGroup: { display: 'flex', flexDirection: 'column', gap: '5px' },
-    label: { fontSize: '14px', fontWeight: '500', color: '#444' },
-    input: { padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', outline: 'none' },
-    textArea: { padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', outline: 'none', resize: 'none' },
-    modalFooter: { padding: '20px', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'flex-end', gap: '10px' },
-    primaryBtn: { backgroundColor: '#007bff', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', opacity: 1, transition: '0.2s' },
-    secondaryBtn: { backgroundColor: '#e2e8f0', color: '#475569', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' },
+    // Các styles Modal cũ (Đã được giữ lại nếu cần cho trang Profile mới)
+    // modalOverlay: { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+    // modalContent: { backgroundColor: 'white', width: '400px', borderRadius: '16px', boxShadow: '0 10px 25px rgba(0,0,0,0.2)', overflow: 'hidden', animation: 'fadeIn 0.2s ease-out' },
+    // modalHeader: { padding: '20px', borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#f8f9fa' },
+    // closeBtn: { background: 'none', border: 'none', fontSize: '18px', cursor: 'pointer', color: '#666' },
+    // modalBody: { padding: '20px', display: 'flex', flexDirection: 'column', gap: '15px' },
+    // formGroup: { display: 'flex', flexDirection: 'column', gap: '5px' },
+    // label: { fontSize: '14px', fontWeight: '500', color: '#444' },
+    // input: { padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', outline: 'none' },
+    // textArea: { padding: '10px', borderRadius: '8px', border: '1px solid #ddd', fontSize: '14px', outline: 'none', resize: 'none' },
+    // modalFooter: { padding: '20px', borderTop: '1px solid #eee', display: 'flex', justifyContent: 'flex-end', gap: '10px' },
+    // primaryBtn: { backgroundColor: '#007bff', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600', opacity: 1, transition: '0.2s' },
+    // secondaryBtn: { backgroundColor: '#e2e8f0', color: '#475569', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' },
 };
 
 export default Dashboard;
