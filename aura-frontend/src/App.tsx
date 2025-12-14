@@ -3,19 +3,21 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './Login';
 import Dashboard from './dashboard';
 import DashboardDr from './dashboarddr';
+import DashboardAdmin from './DashboardAdmin'; 
 import './App.css';
 import Register from './Register';
 import Upload from './Upload';
 import Analysis from './Analysis'; 
 import SetUsername from './setUsername'; 
-// --- 1. IMPORT TRANG PROFILE MỚI ---
-import ProfilePage from './ProfilePage'; // <--- GIẢ ĐỊNH BẠN ĐẶT TÊN FILE LÀ ProfilePage.tsx
+import ProfilePage from './ProfilePage';
 
+// --- HÀM HỖ TRỢ ĐỌC ROLE TỪ LOCAL STORAGE (GIỮ NGUYÊN) ---
 const getUserRoleFromStorage = () => {
     try {
         const userInfoString = localStorage.getItem('user_info');
         if (userInfoString) {
             const userInfo = JSON.parse(userInfoString);
+            // Trả về vai trò ở dạng chữ thường
             return userInfo.role ? userInfo.role.toLowerCase() : null;
         }
     } catch (e) {
@@ -33,6 +35,27 @@ const ProtectedRoute: React.FC<{ element: React.ReactElement }> = ({ element }) 
     return element;
 };
 
+// ⭐ COMPONENT ĐIỀU HƯỚNG MẶC ĐỊNH ĐƯỢC ĐƯA RA NGOÀI ⭐
+const DefaultRedirect: React.FC = () => {
+    const isAuthenticated = !!localStorage.getItem('token');
+    const role = getUserRoleFromStorage();
+    
+    if (!isAuthenticated) {
+        return <Navigate to="/login" replace />;
+    }
+    
+    if (role === 'admin') {
+        return <Navigate to="/admin" replace />;
+    }
+    
+    if (role === 'doctor') {
+        return <Navigate to="/dashboarddr" replace />;
+    }
+    
+    // Mặc định là USER hoặc Guest (nếu chưa đăng ký)
+    return <Navigate to="/dashboard" replace />;
+};
+
 const App: React.FC = () => {
     return (
         <Router>
@@ -48,22 +71,15 @@ const App: React.FC = () => {
                     <Route path="/upload" element={<ProtectedRoute element={<Upload />} />} />
                     <Route path="/result/:id" element={<ProtectedRoute element={<Analysis />} />} />
                     <Route path="/set-username" element={<ProtectedRoute element={<SetUsername />} />} />
-                    
-                    {/* --- THÊM ROUTE MỚI CHO TRANG HỒ SƠ CÁ NHÂN --- */}
                     <Route path="/profile" element={<ProtectedRoute element={<ProfilePage />} />} />
                     
-                    {/* 3. Trang mặc định */}
+                    {/* ROUTE CHO ADMIN DASHBOARD */}
+                    <Route path="/admin" element={<ProtectedRoute element={<DashboardAdmin />} />} />
+                    
+                    {/* 3. Trang mặc định: Sử dụng component DefaultRedirect độc lập */}
                     <Route 
                         path="/" 
-                        element={
-                            !!localStorage.getItem('token') 
-                            ? (
-                                getUserRoleFromStorage() === 'doctor' 
-                                ? <Navigate to="/dashboarddr" replace /> 
-                                : <Navigate to="/dashboard" replace />
-                            )
-                            : <Navigate to="/login" replace />
-                        } 
+                        element={<DefaultRedirect />} 
                     />
 
                     {/* 4. Trang 404 */}

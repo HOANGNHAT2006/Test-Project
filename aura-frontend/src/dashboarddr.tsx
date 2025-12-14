@@ -1,18 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-// --- MOCK DATA ---
-const MOCK_PATIENTS = [
-  { id: 'pat001', name: 'Nguyễn Văn A', lastVisit: '10/12/2025', status: 'Cần xem xét', pendingRecords: 2 },
-  { id: 'pat002', name: 'Trần Thị B', lastVisit: '05/12/2025', status: 'Ổn định', pendingRecords: 0 },
-  { id: 'pat003', name: 'Lê Văn C', lastVisit: '12/11/2025', status: 'Cần tái khám', pendingRecords: 0 },
-];
+// Định nghĩa kiểu dữ liệu cho Patient (Dựa trên API /api/doctor/my-patients)
+interface Patient {
+    id: string;
+    userName: string;
+    email: string;
+    phone: string;
+    status: string; 
+    latest_scan: {
+        record_id: string | null;
+        date: string;
+        result: string;
+        ai_status: string; // PENDING, COMPLETED, FAILED, NA
+    };
+}
 
-const MOCK_RECORDS_PENDING = [
-  { id: 'rec901', patientName: 'Nguyễn Văn A', date: '10/12/2025', aiResult: 'Cao: Bệnh võng mạc', status: 'Chờ Bác sĩ' },
-  { id: 'rec902', patientName: 'Phạm Thị D', date: '09/12/2025', aiResult: 'Trung bình: Đục thủy tinh thể', status: 'Chờ Bác sĩ' },
-];
+// Định nghĩa kiểu dữ liệu cho Hồ sơ cần xem (Dựa trên logic lọc)
+interface PendingRecord {
+    id: string;
+    patientName: string;
+    date: string;
+    aiResult: string;
+    status: string;
+}
 
+// --- MOCK DATA (Chỉ giữ lại cho Chat, vì API Chat chưa triển khai) ---
 const MOCK_CHATS = [
     { id: 1, sender: 'Nguyễn Văn A', preview: 'Bác sĩ ơi, tôi nên làm gì tiếp theo?', time: '10:35 AM', unread: true },
     { id: 2, sender: 'Trần Thị B', preview: 'Cảm ơn Bác sĩ, mắt tôi đã đỡ hơn.', time: 'Yesterday', unread: false },
@@ -23,14 +36,13 @@ const DashboardDr: React.FC = () => {
     const navigate = useNavigate();
 
     // --- STATE ---
-const [userRole, setUserRole] = useState<string>('');
-    const [userName, setUserName] = useState<string>(''); 
-    const [userId, setUserId] = useState<string>(''); 
+    const [userRole, setUserRole] = useState<string>('');
+    const [userName, setUserName] = useState<string>('');    
+    const [userId, setUserId] = useState<string>('');    
     const [isLoading, setIsLoading] = useState(true);
     
-    // Dữ liệu cho Bác sĩ
-    const [patientsData, setPatientsData] = useState<any[]>(MOCK_PATIENTS); // [FR-13]
-    const [pendingRecords, setPendingRecords] = useState<any[]>(MOCK_RECORDS_PENDING); // Hồ sơ cần xem
+    // ⭐ DỮ LIỆU THỰC TẾ TỪ API ⭐
+    const [patientsData, setPatientsData] = useState<Patient[]>([]); // [FR-13]
     
     // State giao diện
     const [activeTab, setActiveTab] = useState<string>('home');
@@ -38,42 +50,70 @@ const [userRole, setUserRole] = useState<string>('');
     const [showFabMenu, setShowFabMenu] = useState(false);
     const [showNotifications, setShowNotifications] = useState(false);
     
-    // --- LOGIC KHỞI TẠO & FAKE API CALL ---
-// --- LOGIC KHỞI TẠO & LẤY THÔNG TIN USER THỰC TẾ ---
+    // --- HÀM TẢI DỮ LIỆU BỆNH NHÂN ĐƯỢC GÁN (GỌI API THẬT) ---
+    const fetchAssignedPatients = useCallback(async (token: string) => {
+        try {
+            const res = await fetch('http://127.0.0.1:8000/api/doctor/my-patients', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (res.ok) {
+                const data = await res.json();
+                setPatientsData(data.patients); // Cập nhật state với dữ liệu THẬT
+            } else {
+                console.error("Lỗi tải danh sách bệnh nhân:", res.status);
+            }
+        } catch (error) {
+            console.error("Lỗi kết nối khi tải danh sách bệnh nhân:", error);
+        }
+    }, []);
+    
+    // --- LOGIC KHỞI TẠO VÀ POLLING DỮ LIỆU ---
     useEffect(() => {
-        const initData = async () => {
-            const token = localStorage.getItem('token');
-            const userInfoString = localStorage.getItem('user_info'); // Lấy chuỗi user_info
+        const token = localStorage.getItem('token');
+        if (!token) {
+            navigate('/login');
+            return;
+        }
 
-            if (!token) {
-                // Nếu không có token, chuyển hướng về login (mặc dù ProtectedRoute đã làm việc này)
-                // navigate('/login');
-                // return;
-            }
-            
-            if (userInfoString) {
-                try {
-                    const userInfo = JSON.parse(userInfoString);
-                    
-                    // ⭐ ĐỌC THÔNG TIN TỪ LOCAL STORAGE ⭐
-                    setUserName(userInfo.name || userInfo.userName || 'Bác sĩ (Lỗi tên)'); // Lấy tên, dùng 'name' hoặc 'userName'
-                    setUserRole(userInfo.role || 'Bác sĩ chuyên khoa');
-                    setUserId(userInfo.id || 'unknown');
-                    
-                } catch (e) {
-                    console.error("Lỗi phân tích cú pháp user_info", e);
+        const initData = async () => {
+            try {
+                // 1. Lấy thông tin Bác sĩ (API /users/me)
+                const userRes = await fetch('http://127.0.0.1:8000/api/users/me', { headers: { 'Authorization': `Bearer ${token}` } });
+                
+                if (!userRes.ok) {
+                    throw new Error("Token không hợp lệ.");
                 }
+                
+                const userData = await userRes.json();
+                const userInfo = userData.user_info;
+
+                setUserName(userInfo.userName || 'Bác sĩ (Lỗi tên)');
+                setUserRole(userInfo.role || 'Bác sĩ chuyên khoa');
+                setUserId(userInfo.id || 'unknown');
+
+                // 2. Lấy danh sách bệnh nhân lần đầu (API /doctor/my-patients)
+                await fetchAssignedPatients(token);
+                
+            } catch (error) {
+                console.error("Lỗi khởi tạo Dashboard Bác sĩ:", error);
+                alert("Lỗi tải dữ liệu. Vui lòng đăng nhập lại.");
+                // navigate('/login'); // Có thể chuyển hướng nếu lỗi nghiêm trọng
+            } finally {
+                setIsLoading(false);
             }
-            
-            // Giả lập thời gian tải dữ liệu
-            await new Promise(resolve => setTimeout(resolve, 500)); 
-            
-            setIsLoading(false);
         };
 
         initData();
-        // Không có polling liên tục như dashboard bệnh nhân, chỉ cần tải một lần.
-    }, [navigate]);
+
+        // 3. POLLING: Cập nhật lại danh sách bệnh nhân (10 giây/lần)
+        const intervalId = setInterval(() => {
+            if (token) fetchAssignedPatients(token);
+        }, 10000); 
+
+        return () => clearInterval(intervalId);
+
+    }, [navigate, fetchAssignedPatients]);
 
     const handleLogout = () => {
         localStorage.removeItem('token');
@@ -88,24 +128,54 @@ const [userRole, setUserRole] = useState<string>('');
 
     // [FR-14, FR-16]: Điều hướng đến trang chi tiết để xem xét kết quả và thêm chẩn đoán/ghi chú
     const goToReviewDetail = (recordId: string) => {
-        navigate(`/review/${recordId}`); 
+        // Tạm thời điều hướng đến trang Analysis, nơi có thể chỉnh sửa ghi chú
+        navigate(`/result/${recordId}`); 
     };
 
     // [FR-17]: Điều hướng đến trang lịch sử của bệnh nhân cụ thể
     const goToPatientHistory = (patientId: string) => {
-        navigate(`/patient/${patientId}/history`);
+        // Cần tạo route /patient/:id/history sau này
+        alert(`Chuyển đến lịch sử chi tiết của Bệnh nhân ID: ${patientId}`);
     };
 
+    // --- TÍNH TOÁN DỮ LIỆU THẬT ---
     const unreadMessagesCount = MOCK_CHATS.filter(chat => chat.unread).length;
+    
+    // Lọc ra các hồ sơ CẦN XEM XÉT GẤP (Mức độ Nặng/Tăng Sinh VÀ đã Hoàn thành)
+    // Hoặc các hồ sơ AI đã hoàn thành mà chưa có Doctor Note (Logic này sẽ triển khai sau)
+    const pendingRecords = patientsData
+        .filter(p => p.latest_scan.ai_status === 'COMPLETED' && 
+                     (p.latest_scan.result.includes('Nặng') || p.latest_scan.result.includes('Tăng sinh')))
+        .map(p => ({
+            id: p.latest_scan.record_id || '',
+            patientName: p.userName,
+            date: p.latest_scan.date,
+            aiResult: p.latest_scan.result,
+            status: 'Chờ Bác sĩ',
+        }));
+        
     const totalPending = pendingRecords.length;
-
+    
+    // --- HIỂN THỊ TRẠNG THÁI AI (Dùng lại logic từ Dashboard User) ---
+    const getStatusBadge = (status: string) => {
+        switch (status) {
+            case 'COMPLETED': return { text: 'Hoàn thành', color: '#28a745' };
+            case 'PENDING': return { text: 'Đang xử lý', color: '#ffc107' };
+            case 'FAILED': return { text: 'Lỗi', color: '#dc3545' };
+            case 'NA': return { text: 'Chưa khám', color: '#6c757d' };
+            default: return { text: 'Khác', color: '#6c757d' };
+        }
+    };
+    
     // --- RENDER CONTENT ---
     const renderContent = () => {
         // --- Tab CHAT TƯ VẤN [FR-20] ---
         if (activeTab === 'chat') {
+            // ... (JSX cho chat) ...
             return (
                 <div style={styles.contentContainer}>
                     <h2 style={{ marginBottom: '20px' }}>💬 Chat Tư Vấn Bệnh Nhân</h2>
+                    <p style={{color: '#999'}}>Chức năng Chat đang được xây dựng. Dữ liệu dưới đây là giả lập.</p>
                     <div style={styles.messageList}>
                         {MOCK_CHATS.map(chat => (
                             <div key={chat.id} style={styles.messageItem}>
@@ -127,53 +197,78 @@ const [userRole, setUserRole] = useState<string>('');
 
         // --- Tab QUẢN LÝ BỆNH NHÂN [FR-13] ---
         if (activeTab === 'patients') {
+            const patientRows = patientsData.length === 0 ? (
+                <tr>
+                    <td colSpan={6} style={{textAlign: 'center', padding: '20px', color: '#666'}}>
+                        Chưa có bệnh nhân nào được Admin phân công cho bạn.
+                    </td>
+                </tr>
+            ) : (
+                patientsData.map((pat) => {
+                    const statusInfo = getStatusBadge(pat.latest_scan.ai_status);
+                    
+                    let resultColor = '#333';
+                    if (pat.latest_scan.result.includes('Nặng') || pat.latest_scan.result.includes('Tăng sinh')) {
+                        resultColor = '#dc3545';
+                    } else if (pat.latest_scan.result.includes('Trung bình')) {
+                        resultColor = '#ffc107';
+                    }
+                    
+                    const isDisabled = !pat.latest_scan.record_id || pat.latest_scan.ai_status !== 'COMPLETED';
+
+                    return (
+                        <tr key={pat.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                            <td style={{ ...styles.td, fontWeight: 'bold' }}>{pat.userName}</td>
+                            <td style={styles.td}>
+                                <small>{pat.email}</small><br/>
+                                <small>{pat.phone}</small>
+                            </td>
+                            <td style={{ ...styles.td, fontWeight: 'bold', color: resultColor }}>
+                                {pat.latest_scan.result}
+                            </td>
+                            <td style={{ ...styles.td, color: '#666' }}>{pat.latest_scan.date}</td>
+                            <td style={styles.td}>
+                                <span style={{...styles.statusBadge, backgroundColor: statusInfo.color, color: 'white'}}>
+                                    {statusInfo.text}
+                                </span>
+                            </td>
+                            <td style={styles.td}>
+                                <button 
+                                    onClick={() => goToReviewDetail(pat.latest_scan.record_id || '')} // [FR-14, FR-16]
+                                    style={{...styles.reviewBtn, opacity: isDisabled ? 0.6 : 1, cursor: isDisabled ? 'not-allowed' : 'pointer'}}
+                                    disabled={isDisabled}
+                                >
+                                    {isDisabled ? 'Chờ AI...' : 'Xem & Chẩn đoán'}
+                                </button>
+                            </td>
+                        </tr>
+                    );
+                })
+            );
+            
             return (
                 <div style={styles.contentContainer}>
                     <h2 style={{ marginBottom: '20px' }}>🧑‍⚕️ Danh sách Bệnh nhân được phân công ({patientsData.length})</h2>
                     <table style={styles.table}>
                         <thead>
                             <tr style={{ borderBottom: '2px solid #eee', textAlign: 'left' }}>
-                                <th style={{ padding: '12px' }}>Tên bệnh nhân</th>
-                                <th style={{ padding: '12px' }}>Lần khám cuối</th>
-                                <th style={{ padding: '12px' }}>Trạng thái</th>
-                                <th style={{ padding: '12px' }}>Hồ sơ chờ</th>
-                                <th style={{ padding: '12px' }}>Hành động</th>
+                                <th style={styles.th}>Tên bệnh nhân</th>
+                                <th style={styles.th}>Email/SĐT</th>
+                                <th style={styles.th}>Kết quả gần nhất</th>
+                                <th style={styles.th}>Ngày khám</th>
+                                <th style={styles.th}>Trạng thái AI</th>
+                                <th style={styles.th}>Hành động</th>
                             </tr>
                         </thead>
                         <tbody>
-                            {patientsData.map((pat, index) => (
-                                <tr key={index} style={{ borderBottom: '1px solid #f0f0f0' }}>
-                                    <td style={{ padding: '12px', fontWeight: 'bold' }}>{pat.name}</td>
-                                    <td style={{ padding: '12px', color: '#666' }}>{pat.lastVisit}</td>
-                                    <td style={{ padding: '12px' }}>
-                                        <span style={{ 
-                                            ...styles.statusBadge, 
-                                            backgroundColor: pat.status === 'Cần xem xét' ? '#fff3cd' : '#d4edda',
-                                            color: pat.status === 'Cần xem xét' ? '#856404' : '#155724'
-                                        }}>
-                                            {pat.status}
-                                        </span>
-                                    </td>
-                                    <td style={{ padding: '12px', color: pat.pendingRecords > 0 ? '#dc3545' : '#666' }}>
-                                        {pat.pendingRecords}
-                                    </td>
-                                    <td style={{ padding: '12px' }}>
-                                        <button 
-                                            onClick={() => goToPatientHistory(pat.id)} // [FR-17]
-                                            style={styles.actionBtn}
-                                        >
-                                            Xem Lịch sử
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
+                            {patientRows}
                         </tbody>
                     </table>
                 </div>
             );
         }
 
-        // --- Tab TRANG CHỦ (HOME) [FR-14, FR-16] ---
+        // --- Tab TRANG CHỦ (HOME) [FR-14, FR-16] (Phần mặc định) ---
         return (
             <div style={styles.contentGrid}>
                 {/* Thẻ Tổng quan */}
@@ -182,18 +277,18 @@ const [userRole, setUserRole] = useState<string>('');
                     <div style={{ display: 'flex', gap: '40px', marginTop: '20px' }}>
                         <div>
                             <span style={{ fontSize: '14px', color: '#666' }}>Tổng Bệnh nhân</span>
-                            <h1 style={{ margin: '5px 0 0', color: '#007bff', fontSize: '36px' }}>{patientsData.length}</h1>
+                            <h1 style={{ margin: '5px 0 0', color: '#3498db', fontSize: '36px' }}>{patientsData.length}</h1>
                         </div>
                         <div>
                             <span style={{ fontSize: '14px', color: '#666' }}>Hồ sơ cần xử lý</span>
-                            <h1 style={{ margin: '5px 0 0', color: totalPending > 0 ? '#dc3545' : '#28a745', fontSize: '36px' }}>{totalPending}</h1>
+                            <h1 style={{ margin: '5px 0 0', color: totalPending > 0 ? '#e74c3c' : '#2ecc71', fontSize: '36px' }}>{totalPending}</h1>
                         </div>
                     </div>
                 </div>
                 
                 {/* Bảng Hồ sơ cần xem xét */}
                 <div style={{ ...styles.card, gridColumn: '1 / -1' }}>
-                    <h3 style={{ margin: 0, color: totalPending > 0 ? '#dc3545' : '#000' }}>⚠️ Hồ sơ cần xem xét gấp ({totalPending} ca)</h3>
+                    <h3 style={{ margin: 0, color: totalPending > 0 ? '#e74c3c' : '#000' }}>⚠️ Hồ sơ cần xem xét gấp ({totalPending} ca)</h3>
                     
                     {totalPending === 0 ? (
                         <p style={{ marginTop: '15px', color: '#666' }}>Bạn không có hồ sơ nào đang chờ xem xét.</p>
@@ -201,10 +296,10 @@ const [userRole, setUserRole] = useState<string>('');
                         <table style={{ ...styles.table, marginTop: '20px' }}>
                             <thead>
                                 <tr style={{ borderBottom: '2px solid #eee', textAlign: 'left' }}>
-                                    <th style={{ padding: '12px' }}>Bệnh nhân</th>
-                                    <th style={{ padding: '12px' }}>Ngày khám</th>
-                                    <th style={{ padding: '12px' }}>Kết quả AI</th>
-                                    <th style={{ padding: '12px' }}>Hành động</th>
+                                    <th style={styles.th}>Bệnh nhân</th>
+                                    <th style={styles.th}>Ngày khám</th>
+                                    <th style={styles.th}>Kết quả AI</th>
+                                    <th style={styles.th}>Hành động</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -212,7 +307,7 @@ const [userRole, setUserRole] = useState<string>('');
                                     <tr key={index} style={{ borderBottom: '1px solid #f0f0f0' }}>
                                         <td style={{ padding: '12px', fontWeight: 'bold' }}>{item.patientName}</td>
                                         <td style={{ padding: '12px', color: '#666' }}>{item.date}</td>
-                                        <td style={{ padding: '12px', color: '#dc3545', fontWeight: 'bold' }}>{item.aiResult}</td>
+                                        <td style={{ padding: '12px', color: '#e74c3c', fontWeight: 'bold' }}>{item.aiResult}</td>
                                         <td style={{ padding: '12px' }}>
                                             <button 
                                                 onClick={() => goToReviewDetail(item.id)} // [FR-14, FR-16]
@@ -259,13 +354,13 @@ const [userRole, setUserRole] = useState<string>('');
                         <p style={{ margin: '5px 0 0', color: '#cbd5e1' }}>Bạn có **{totalPending} hồ sơ** cần xem xét ngay.</p>
                     </div>
                     <div style={styles.headerActions}>
-                        {/* Nút thông báo (có thể dùng lại cho các hồ sơ cần xem xét) */}
+                        {/* Nút thông báo */}
                         <div style={{ position: 'relative' }}>
                             <button style={styles.bellBtn} onClick={toggleNotifications} title="Hồ sơ cần xem xét">
                                 🚨
                                 {totalPending > 0 && <span style={styles.bellBadge}></span>}
                             </button>
-                            {/* Bạn có thể thêm NotificationDropdown ở đây, tương tự như file gốc */}
+                            {/* NotificationDropdown ở đây nếu cần */}
                         </div>
 
                         <div style={{ position: 'relative' }}>
@@ -287,7 +382,7 @@ const [userRole, setUserRole] = useState<string>('');
                 {renderContent()}
             </main>
 
-            {/* FAB Button (Có thể dùng để tạo hồ sơ khám mới nếu cần) */}
+            {/* FAB Button */}
             <div style={styles.fabContainer}>
                 {showFabMenu && (
                     <div style={styles.fabMenu}>
@@ -332,14 +427,16 @@ const styles: { [key: string]: React.CSSProperties } = {
     // Styles riêng cho Doctor
     reviewBtn: { backgroundColor: '#2ecc71', color: 'white', border: 'none', padding: '8px 15px', borderRadius: '6px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }, // Nút "Chẩn đoán"
     actionBtn: { background: 'none', border: '1px solid #3498db', color: '#3498db', padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }, // Nút "Xem Lịch sử"
-    statusBadge: { padding: '5px 10px', borderRadius: '15px', fontSize: '12px' },
+    statusBadge: { padding: '5px 10px', borderRadius: '15px', fontSize: '12px', fontWeight: 'bold' },
     
     // Message Styles cho chat
     contentContainer: { backgroundColor: 'white', borderRadius: '16px', padding: '30px', boxShadow: '0 2px 10px rgba(0,0,0,0.03)', flex: 1 },
     messageList: { display: 'flex', flexDirection: 'column', gap: '15px' },
-    messageItem: { display: 'flex', alignItems: 'center', gap: '15px', padding: '15px', borderBottom: '1px solid #eee', cursor: 'pointer', transition: 'background 0.2s', borderRadius: '8px', ':hover': { backgroundColor: '#f7f7f7' } },
+    messageItem: { display: 'flex', alignItems: 'center', gap: '15px', padding: '15px', borderBottom: '1px solid #eee', cursor: 'pointer', transition: 'background 0.2s', borderRadius: '8px' },
     messageAvatar: { width: '40px', height: '40px', borderRadius: '50%', backgroundColor: '#3498db', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', color: 'white' },
     unreadDot: { width: '10px', height: '10px', borderRadius: '50%', backgroundColor: '#e74c3c' },
+    th: { padding: '12px 15px', textAlign: 'left', borderBottom: '2px solid #ddd', backgroundColor: '#f8f9fa' },
+    td: { padding: '12px 15px', borderBottom: '1px solid #eee', fontSize: '14px' },
 };
 
 export default DashboardDr;
