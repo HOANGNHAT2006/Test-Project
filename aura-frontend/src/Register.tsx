@@ -55,8 +55,7 @@ const Register = () => {
   return (
     <div className="login-box">
       <div className="form-title">
-        <img src="/logo.svg" alt="AURA Logo" style={{ width: '80px', marginBottom: '10px' }} />
-        <h3>Đăng Ký Tài Khoản</h3>
+        <h3>Register</h3>
       </div>
       
       <form onSubmit={handleRegister}>
@@ -67,7 +66,7 @@ const Register = () => {
           <input 
             type="text" // --- SỬA LẠI: type="text" mới đúng HTML ---
             name="userName" 
-            placeholder="Tên tài khoản" 
+            placeholder="Username" 
             required 
             onChange={handleChange}
           />
@@ -78,7 +77,7 @@ const Register = () => {
           <input 
             type="password" 
             name="password" 
-            placeholder="Mật khẩu" 
+            placeholder="Password" 
             required 
             onChange={handleChange}
           />
@@ -89,22 +88,22 @@ const Register = () => {
           <input 
             type="password" 
             name="confirm_password" 
-            placeholder="Xác nhận mật khẩu" 
+            placeholder="Confirm Password" 
             required 
             onChange={handleChange}
           />
         </div>
         
-        <button type="submit">Đăng Ký Ngay</button>
+        <button type="submit">Register Now</button>
 
         <div className="register-section">
-            <p>Đã có tài khoản?</p>
+            <p>Have an account?</p>
             <span 
-                style={{cursor: 'pointer', color: 'blue', fontWeight: 'bold'}} 
+                style={{cursor: 'pointer', color: 'white', fontWeight: 'bold'}} 
                 onClick={() => navigate('/login')} 
                 className="register-link"
             >
-                Quay lại Đăng Nhập
+                Back to Login
             </span>
         </div>
       </form>

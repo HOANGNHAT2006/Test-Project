@@ -6,11 +6,12 @@ import './App.css';
 const Login = () => {
     const [userName, setUserName] = useState('');
     const [password, setPassword] = useState('');
+    const [rememberMe, setRememberMe] = useState(false); // Thêm state cho Remember Me
     const [error, setError] = useState(''); 
     
     const navigate = useNavigate(); 
 
-    // --- 2. LOGIC ĐĂNG NHẬP GOOGLE (ĐÃ CẬP NHẬT) ---
+    // --- 2. LOGIC ĐĂNG NHẬP GOOGLE ---
     const loginWithGoogle = useGoogleLogin({
         onSuccess: async (tokenResponse) => {
             try {
@@ -30,7 +31,11 @@ const Login = () => {
                 } else {
                     // 1. Luôn lưu Token và thông tin user trước
                     localStorage.setItem('token', data.access_token);
-                    localStorage.setItem('user_info', JSON.stringify(data.user_info));
+                    if (rememberMe) { // Logic ghi nhớ nếu cần
+                        localStorage.setItem('user_info', JSON.stringify(data.user_info));
+                    } else {
+                        sessionStorage.setItem('user_info', JSON.stringify(data.user_info));
+                    }
                   
                     // 2. KIỂM TRA: CÓ PHẢI USER MỚI (HOẶC CHƯA ĐỔI TÊN) KHÔNG?
                     if (data.is_new_user) {
@@ -42,7 +47,7 @@ const Login = () => {
                         const standardizedRole = userInfo.role ? userInfo.role.toLowerCase() : '';
                         console.log("Vai trò:", standardizedRole);
                         
-                        if (standardizedRole === 'admin') { // <--- ĐÃ SỬA
+                        if (standardizedRole === 'admin') { 
                             navigate('/admin', { replace: true });
                         } else if (standardizedRole === 'doctor') { 
                             navigate('/dashboarddr', { replace: true });
@@ -59,7 +64,7 @@ const Login = () => {
         onError: () => setError('Đăng nhập Google thất bại (Popup closed)'),
     });
 
-    // --- LOGIC ĐĂNG NHẬP THƯỜNG (ĐÃ CẬP NHẬT) ---
+    // --- LOGIC ĐĂNG NHẬP THƯỜNG ---
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setError('');
@@ -79,12 +84,20 @@ const Login = () => {
                 setError(data.detail || 'Đăng nhập thất bại');
             } else {
                 localStorage.setItem('token', data.access_token);
-                localStorage.setItem('user_info', JSON.stringify(data.user_info));
+                
+                // Quyết định nơi lưu thông tin người dùng dựa trên rememberMe
+                if (rememberMe) {
+                    localStorage.setItem('user_info', JSON.stringify(data.user_info));
+                } else {
+                    sessionStorage.setItem('user_info', JSON.stringify(data.user_info));
+                    // Lưu ý: Token vẫn dùng localStorage như quy ước của bạn
+                }
+
                 const userInfo = data.user_info;
 
                 const standardizedRole = userInfo.role ? userInfo.role.toLowerCase() : '';
                 
-                if (standardizedRole === 'admin') { // <--- ĐÃ SỬA
+                if (standardizedRole === 'admin') { 
                     navigate('/admin', { replace: true });
                 } else if (standardizedRole === 'doctor') {
                     navigate('/dashboarddr', { replace: true });
@@ -102,8 +115,7 @@ const Login = () => {
     return (
         <div className="login-box">
             <div className="form-title">
-                <img src="/logo.svg" alt="AURA Logo" style={{ width: '80px', marginBottom: '10px' }} />
-                <h3>Đăng Nhập</h3>
+                <h3>Login</h3>
             </div>
             
             <form onSubmit={handleLogin}>
@@ -113,7 +125,7 @@ const Login = () => {
                     <i className="fas fa-user icon"></i> 
                     <input 
                         type="text" 
-                        placeholder="Tên người dùng" 
+                        placeholder="Email/Username" 
                         value={userName} 
                         onChange={(e) => setUserName(e.target.value)} 
                         required
@@ -123,35 +135,65 @@ const Login = () => {
                     <i className="fas fa-lock icon"></i>
                     <input 
                         type="password" 
-                        placeholder="Mật khẩu" 
+                        placeholder="Password" 
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         required
                     />
                 </div>
                 
-                <button type="submit">Đăng Nhập</button>
+                {/* ĐẶT TRƯỚC NÚT SUBMIT */}
+                <div className="login-options"> 
+                    <div className="remember-me" onClick={() => setRememberMe(!rememberMe)}>
+                        <input 
+                            type="checkbox" 
+                            id="remember-me" 
+                            checked={rememberMe}
+                            onChange={(e) => setRememberMe(e.target.checked)}
+                            style={{ /* Đảm bảo checkbox hiển thị rõ ràng */
+                                width: '15px', 
+                                height: '15px', 
+                                backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                                border: '1px solid rgba(255, 255, 255, 0.4)',
+                                borderRadius: '3px'
+                            }}
+                        />
+                        <label htmlFor="remember-me">Remember me</label>
+                    </div>
+                    
+                    <div className="forgot-password">
+                        <a href="#">Forgot Password?</a>
+                    </div>
+                </div>
 
-                <p className="forgot-password"><a href="#">Quên mật khẩu?</a></p>
+                <button type="submit">Login</button>
                 
-                <div className="divider">Hoặc</div>
+                <div className="divider">Or</div>
                 
                 <button 
                     type="button" 
                     className="social-button google-btn"
                     onClick={() => loginWithGoogle()} 
                 >
-                    <i className="fab fa-google"></i> Đăng nhập bằng Google
+                    <i className="fab fa-google"></i> Login with Google
+                </button>
+
+                <button 
+                    type="button" 
+                    className="social-button facebook-btn" 
+                    onClick={() => alert('Chức năng đăng nhập Facebook đang phát triển')} 
+                >
+                    <i className="fab fa-facebook"></i> Login with Facebook
                 </button>
 
                 <div className="register-section">
-                    <p>Chưa có tài khoản?</p>
+                    <p>Don't have an account?</p>
                     <span
                         className="register-link"
                         style={{cursor: 'pointer'}}
                         onClick={() => navigate('/register')}
                     >
-                        Đăng Ký Ngay
+                        Register
                     </span>
                 </div>
             </form>
