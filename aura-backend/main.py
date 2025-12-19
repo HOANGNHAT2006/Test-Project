@@ -43,6 +43,7 @@ client = AsyncIOMotorClient(MONGO_URL)
 db = client.aura_db
 users_collection = db.users
 medical_records_collection = db.medical_records
+messages_collection = db.messages
 
 # 5. Cấu hình Bảo mật
 SECRET_KEY = os.getenv("SECRET_KEY", "secret_mac_dinh")
@@ -432,6 +433,9 @@ class AssignDoctorRequest(BaseModel):
 class DoctorNoteRequest(BaseModel):
     doctor_note: str
 
+class SendMessageRequest(BaseModel):
+    receiver_id: str
+    content: str
 # --- API ENDPOINTS ---
 
 @app.post("/api/register")
@@ -775,21 +779,147 @@ async def get_all_users(current_user: dict = Depends(get_current_user)):
         users_list.append({"id": str(user["_id"]), "userName": user["userName"], "email": user.get("email", ""), "role": user.get("role", "USER"), "status": user.get("status", "ACTIVE"), "assigned_doctor_id": user.get("assigned_doctor_id", None)})
     return {"users": users_list}
 
+# --- CÁC API CHAT (CẬP NHẬT MỚI: ĐÃ FIX LỖI OBJECTID) ---
+
+@app.post("/api/chat/send")
+async def send_message(data: SendMessageRequest, current_user: dict = Depends(get_current_user)):
+    print(f"📩 DEBUG SEND: Từ {current_user['userName']} -> Tới {data.receiver_id} | Nội dung: {data.content}")
+
+    try:
+        # 1. Xử lý trường hợp gửi cho Hệ thống (Tránh lỗi 400)
+        if data.receiver_id == "system":
+             # Trả về thành công giả để Frontend không bị lỗi, nhưng không lưu vào DB
+             return {"message": "Đã gửi tới hệ thống (Auto reply)"}
+             
+        # 2. Kiểm tra ID người nhận có hợp lệ không
+        try:
+            receiver_oid = ObjectId(data.receiver_id)
+        except Exception as e:
+            print(f"❌ Lỗi ID không hợp lệ: {data.receiver_id}")
+            raise HTTPException(status_code=400, detail=f"ID người nhận không hợp lệ: {data.receiver_id}")
+
+        receiver = await users_collection.find_one({"_id": receiver_oid})
+        if not receiver:
+            raise HTTPException(status_code=404, detail="Người nhận không tồn tại")
+
+        # 3. Lưu tin nhắn vào DB
+        new_message = {
+            "sender_id": current_user["id"],
+            "sender_name": current_user["userName"], 
+            "receiver_id": data.receiver_id,
+            "content": data.content,
+            "timestamp": datetime.utcnow(),
+            "is_read": False
+        }
+        
+        await messages_collection.insert_one(new_message)
+        print("✅ Đã lưu tin nhắn vào DB")
+        return {"message": "Đã gửi tin nhắn"}
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"❌ Lỗi Server: {e}")
+        raise HTTPException(status_code=500, detail="Lỗi server nội bộ")
+
+@app.get("/api/chat/history/{other_user_id}")
+async def get_chat_history(other_user_id: str, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
+    
+    # Xử lý chat với hệ thống
+    if other_user_id == "system":
+        return {
+            "messages": [
+                {
+                    "id": "sys_welcome", 
+                    "content": "Chào mừng bạn đến với AURA! Hãy chụp ảnh đáy mắt để bắt đầu.", 
+                    "is_me": False, 
+                    "time": datetime.now().strftime("%H:%M %d/%m")
+                }
+            ]
+        }
+
+    # Lấy tin nhắn 2 chiều (Tôi gửi HỌ hoặc HỌ gửi TÔI)
+    cursor = messages_collection.find({
+        "$or": [
+            {"sender_id": user_id, "receiver_id": other_user_id},
+            {"sender_id": other_user_id, "receiver_id": user_id}
+        ]
+    }).sort("timestamp", 1) # Sắp xếp cũ nhất -> mới nhất
+    
+    messages = []
+    async for msg in cursor:
+        messages.append({
+            "id": str(msg["_id"]),
+            "sender_id": msg["sender_id"],
+            "content": msg["content"],
+            # Chuyển giờ UTC về giờ địa phương đơn giản (+7)
+            "time": (msg["timestamp"] + timedelta(hours=7)).strftime("%H:%M %d/%m"),
+            "is_me": msg["sender_id"] == user_id
+        })
+        
+    # Đánh dấu đã đọc các tin nhắn do người kia gửi cho mình
+    await messages_collection.update_many(
+        {"sender_id": other_user_id, "receiver_id": user_id, "is_read": False},
+        {"$set": {"is_read": True}}
+    )
+        
+    return {"messages": messages}
+
 @app.get("/api/chats")
 async def get_chats(current_user: dict = Depends(get_current_user)):
     user_id = current_user["id"]
-    user_role = current_user["role"]
+    role = current_user["role"]
     chats = []
-    if user_role == "DOCTOR":
-        patients_cursor = users_collection.find({"assigned_doctor_id": user_id})
-        async for patient in patients_cursor:
-            chats.append({"id": str(patient["_id"]), "sender": patient["userName"], "preview": "Bác sĩ ơi, tôi đã có kết quả chụp mới...", "time": "Vừa xong", "unread": True, "interlocutor_id": str(patient["_id"])})
-    elif user_role == "USER":
+
+    # Hàm phụ để lấy thông tin chat (tin cuối, số tin chưa đọc)
+    async def get_chat_info(partner_id, partner_name):
+        unread = await messages_collection.count_documents({
+            "sender_id": partner_id, "receiver_id": user_id, "is_read": False
+        })
+        last_msg = await messages_collection.find_one(
+            {"$or": [{"sender_id": user_id, "receiver_id": partner_id}, 
+                     {"sender_id": partner_id, "receiver_id": user_id}]},
+            sort=[("timestamp", -1)]
+        )
+        preview = last_msg["content"] if last_msg else "Bắt đầu cuộc trò chuyện..."
+        time_str = (last_msg["timestamp"] + timedelta(hours=7)).strftime("%H:%M") if last_msg else ""
+        
+        return {
+            "id": partner_id,
+            "sender": partner_name,
+            "preview": preview,
+            "time": time_str,
+            "unread": unread > 0,
+            "unread_count": unread
+        }
+
+    # 1. Nếu là Bệnh nhân -> Lấy Bác sĩ phụ trách
+    if role == "USER":
         assigned_doc_id = current_user.get("assigned_doctor_id")
         if assigned_doc_id:
             try:
                 doctor = await users_collection.find_one({"_id": ObjectId(assigned_doc_id)})
-                if doctor: chats.append({"id": str(doctor["_id"]), "sender": f"BS. {doctor['userName']}", "preview": "Chào bạn, hãy thường xuyên cập nhật tình trạng nhé.", "time": "Hôm nay", "unread": True, "interlocutor_id": str(doctor["_id"])})
-            except: pass
-        chats.append({"id": "system_01", "sender": "Hệ thống AURA", "preview": "Chào mừng bạn! Hãy chụp ảnh đáy mắt để bắt đầu.", "time": "Hôm qua", "unread": False, "interlocutor_id": "system"})
+                if doctor:
+                    chat_info = await get_chat_info(str(doctor["_id"]), f"BS. {doctor['userName']}")
+                    chats.append(chat_info)
+            except Exception as e: print(f"Lỗi lấy chat user: {e}")
+
+    # 2. Nếu là Bác sĩ -> Lấy danh sách bệnh nhân
+    elif role == "DOCTOR":
+        patients = users_collection.find({"assigned_doctor_id": user_id})
+        async for p in patients:
+            chat_info = await get_chat_info(str(p["_id"]), p["userName"])
+            chats.append(chat_info)
+
+    # Chat Hệ thống (Đổi ID thành "system" chuẩn)
+    chats.append({
+        "id": "system", 
+        "sender": "Hệ thống AURA", 
+        "preview": "Thông báo hệ thống", 
+        "time": "", 
+        "unread": False,
+        "interlocutor_id": "system"
+    })
+    
     return {"chats": chats}

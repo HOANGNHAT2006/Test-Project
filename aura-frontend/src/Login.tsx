@@ -157,7 +157,7 @@ const Login = () => {
                 {/* NÚT FACEBOOK (ĐÃ TÍCH HỢP) */}
                 <div style={{width: '100%', display: 'flex', justifyContent: 'center'}}>
                     <FacebookLogin
-                        appId="836034659202730"  // <--- ⚠️ DÁN APP ID CỦA BẠN VÀO ĐÂY
+                        appId="1874060756652806"  // <--- ⚠️ DÁN APP ID CỦA BẠN VÀO ĐÂY
                         onSuccess={handleFacebookResponse}
                         onFail={(error) => console.log('Login Failed!', error)}
                         style={{
