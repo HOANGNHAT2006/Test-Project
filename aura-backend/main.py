@@ -490,12 +490,7 @@ async def login(data: LoginRequest):
 async def read_users_me(current_user: dict = Depends(get_current_user)):
     return {
         "message": "Dữ liệu người dùng",
-        "user_info": {
-            "id": str(current_user.get("_id")),
-            "userName": current_user.get("userName"),
-            "full_name": current_user.get("full_name", ""), # Đảm bảo field này trùng với DB
-            "role": current_user.get("role", "PATIENT"),
-        }
+        "user_info": current_user 
     }
 
 # --- API UPLOAD ---
@@ -748,6 +743,8 @@ async def set_username(data: UpdateUsernameRequest, current_user: dict = Depends
 
 @app.put("/api/users/profile")
 async def update_user_profile(data: UserProfileUpdate, current_user: dict = Depends(get_current_user)):
+    print("📥 [DEBUG] Raw Data nhận được:", data.dict())
+    print("📥 [DEBUG] Data sau khi lọc None:", {k: v for k, v in data.dict().items() if v is not None})
     try:
         user_id = current_user["id"]
         if data.email:
